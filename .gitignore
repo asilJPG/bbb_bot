@@ -1,0 +1,16 @@
+# База данных
+bot.db
+
+# Логи
+bot.log
+*.log
+
+# Переменные окружения
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
