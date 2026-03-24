@@ -2,6 +2,7 @@
 Обработчики администратора
 """
 
+import asyncio
 import logging
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -89,20 +90,58 @@ async def cb_msg_add(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# Храним таймеры для сборки медиагрупп
+_media_group_timers: dict[str, asyncio.Task] = {}
+
+
 @router.message(AdminFlow.adding_msg)
-async def handle_add_msg(message: Message, state: FSMContext):
+async def handle_add_msg(message: Message, state: FSMContext, bot: Bot):
     if not is_admin(message.from_user.id):
         return
-    # Сохраняем chat_id и message_id
-    position = await add_start_message(message.chat.id, message.message_id)
-    await state.clear()
-    await message.answer(
-        f"✅ <b>Сообщение добавлено!</b>\n"
-        f"Позиция в цепочке: <b>{position}</b>",
-        parse_mode="HTML",
-        reply_markup=msg_added_keyboard()
-    )
-    logger.info(f"[admin] Добавлено стартовое сообщение pos={position}")
+
+    media_group_id = message.media_group_id
+
+    if media_group_id:
+        # Сохраняем каждое сообщение из альбома
+        await add_start_message(message.chat.id, message.message_id, media_group_id)
+
+        # Отменяем предыдущий таймер для этой группы
+        if media_group_id in _media_group_timers:
+            _media_group_timers[media_group_id].cancel()
+
+        # Ждём 1 секунду — если новых сообщений не будет, считаем группу завершённой
+        async def finish_group():
+            await asyncio.sleep(1)
+            msgs = await get_start_messages()
+            grp = next((m for m in msgs if m.get("media_group_id") == media_group_id), None)
+            position = grp["position"] if grp else "?"
+            await state.clear()
+            try:
+                await bot.send_message(
+                    message.chat.id,
+                    f"✅ <b>Альбом добавлен!</b>\n"
+                    f"Файлов в альбоме: <b>{len(grp['message_ids']) if grp else '?'}</b>\n"
+                    f"Позиция в цепочке: <b>{position}</b>",
+                    parse_mode="HTML",
+                    reply_markup=msg_added_keyboard()
+                )
+            except Exception:
+                pass
+            _media_group_timers.pop(media_group_id, None)
+
+        task = asyncio.create_task(finish_group())
+        _media_group_timers[media_group_id] = task
+    else:
+        # Обычное сообщение (не альбом)
+        position = await add_start_message(message.chat.id, message.message_id)
+        await state.clear()
+        await message.answer(
+            f"✅ <b>Сообщение добавлено!</b>\n"
+            f"Позиция в цепочке: <b>{position}</b>",
+            parse_mode="HTML",
+            reply_markup=msg_added_keyboard()
+        )
+        logger.info(f"[admin] Добавлено стартовое сообщение pos={position}")
 
 
 @router.callback_query(F.data == "msg_preview")

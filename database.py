@@ -28,12 +28,23 @@ async def init_db():
         # Стартовые сообщения (новая таблица)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS start_messages (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id    INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                position   INTEGER NOT NULL
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id        INTEGER NOT NULL,
+                message_id     INTEGER NOT NULL,
+                message_ids    TEXT DEFAULT '[]',
+                media_group_id TEXT,
+                position       INTEGER NOT NULL
             )
         """)
+        # Совместимость
+        for col, default in [
+            ("message_ids", "'[]'"),
+            ("media_group_id", "NULL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE start_messages ADD COLUMN {col} TEXT DEFAULT {default}")
+            except Exception:
+                pass
 
         # Контент (youtube + welcome)
         await db.execute("""
@@ -150,13 +161,36 @@ async def get_stats() -> dict:
 # СТАРТОВЫЕ СООБЩЕНИЯ
 # ---------------------------------------------------------------------------
 
-async def add_start_message(chat_id: int, message_id: int) -> int:
+async def add_start_message(chat_id: int, message_id: int, media_group_id: str | None = None) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
+        # Если это часть медиагруппы — проверяем есть ли уже такая группа
+        if media_group_id:
+            async with db.execute(
+                "SELECT id FROM start_messages WHERE media_group_id = ?", (media_group_id,)
+            ) as cur:
+                existing = await cur.fetchone()
+            if existing:
+                # Добавляем message_id к существующей группе
+                async with db.execute(
+                    "SELECT message_ids, position FROM start_messages WHERE media_group_id = ?",
+                    (media_group_id,)
+                ) as cur:
+                    row = await cur.fetchone()
+                    ids = json.loads(row[0])
+                    position = row[1]
+                ids.append(message_id)
+                await db.execute(
+                    "UPDATE start_messages SET message_ids = ? WHERE media_group_id = ?",
+                    (json.dumps(ids), media_group_id)
+                )
+                await db.commit()
+                return position
+
         async with db.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM start_messages") as cur:
             position = (await cur.fetchone())[0]
         await db.execute(
-            "INSERT INTO start_messages (chat_id, message_id, position) VALUES (?, ?, ?)",
-            (chat_id, message_id, position)
+            "INSERT INTO start_messages (chat_id, message_id, message_ids, media_group_id, position) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, message_id, json.dumps([message_id]), media_group_id, position)
         )
         await db.commit()
         return position
@@ -165,10 +199,24 @@ async def add_start_message(chat_id: int, message_id: int) -> int:
 async def get_start_messages() -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT id, chat_id, message_id, position FROM start_messages ORDER BY position"
+            "SELECT id, chat_id, message_id, message_ids, media_group_id, position FROM start_messages ORDER BY position"
         ) as cur:
             rows = await cur.fetchall()
-            return [{"id": r[0], "chat_id": r[1], "message_id": r[2], "position": r[3]} for r in rows]
+            result = []
+            for r in rows:
+                try:
+                    message_ids = json.loads(r[3] or "[]") or [r[2]]
+                except Exception:
+                    message_ids = [r[2]]
+                result.append({
+                    "id": r[0],
+                    "chat_id": r[1],
+                    "message_id": r[2],
+                    "message_ids": message_ids,
+                    "media_group_id": r[4],
+                    "position": r[5],
+                })
+            return result
 
 
 async def clear_start_messages():
