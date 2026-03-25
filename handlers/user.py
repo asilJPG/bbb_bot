@@ -100,27 +100,14 @@ async def _send_start_messages(bot: Bot, user_id: int):
             message_ids = msg.get("message_ids", [msg["message_id"]])
 
             if len(message_ids) > 1:
-                # Медиагруппа — копируем как альбом
-                from aiogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
-                media_items = []
-                for mid in message_ids:
-                    # forward каждое сообщение чтобы собрать альбом
-                    forwarded = await bot.forward_message(
-                        chat_id=user_id,
-                        from_chat_id=msg["chat_id"],
-                        message_id=mid
-                    )
-                    # Удаляем пересланное и копируем через copy
-                    await bot.delete_message(user_id, forwarded.message_id)
-
-                # Копируем через copy_messages если доступно
-                await bot.copy_messages(
+                # Медиагруппа — пересылаем все сообщения разом через forward_messages
+                await bot.forward_messages(
                     chat_id=user_id,
                     from_chat_id=msg["chat_id"],
                     message_ids=message_ids
                 )
             else:
-                # Одиночное сообщение
+                # Одиночное сообщение — копируем без пометки "переслано"
                 await bot.copy_message(
                     chat_id=user_id,
                     from_chat_id=msg["chat_id"],
