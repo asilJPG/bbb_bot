@@ -40,7 +40,10 @@ async def cmd_admin(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("🔐 <b>Панель администратора</b>", parse_mode="HTML",
                          reply_markup=admin_main_keyboard())
-
+    
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, state: FSMContext):
+    await message.answer(f"ID: {message.from_user.id}\nADMIN_IDS: {ADMIN_IDS}\nADMIN_ID: {ADMIN_ID}")
 
 @router.callback_query(F.data == "back_to_main")
 async def cb_back(callback: CallbackQuery, state: FSMContext):
