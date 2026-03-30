@@ -74,7 +74,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
 
     # СЦЕНАРИЙ 1: обычный
     if await user_has_name(user_id):
-        await message.answer("👋 Добро пожаловать снова! Вы уже зарегистрированы.")
+        await message.answer("👋 Siz allaqachon ro‘yxatdan o‘tgansiz.")
         return
 
     # Отправляем стартовые сообщения
@@ -169,7 +169,7 @@ async def _delayed_ask_name(bot: Bot, user_id: int, state: FSMContext):
         await asyncio.sleep(DELAY_SECONDS)
         if await user_has_name(user_id):
             return
-        await bot.send_message(user_id, "✏️ Введите ваше имя:")
+        await bot.send_message(user_id, "📜To’liqroq ma’lumot olishingiz uchun iltimos ma’lumotlaringizni qoldiring!\n\n""✏️Ismingizni yozing:")
         await state.set_state(UserFlow.waiting_name)
         logger.info(f"[timer] Запросили имя у user_id={user_id}")
     except asyncio.CancelledError:
@@ -188,12 +188,12 @@ async def _delayed_ask_name(bot: Bot, user_id: int, state: FSMContext):
 async def handle_name(message: Message, state: FSMContext):
     name = message.text.strip()
     if message.text.startswith("/"):
-        await message.answer("⚠️ Пожалуйста, введите ваше имя.")
+        await message.answer("⚠️ Iltimos, ismingizni kiriting.")
         return
     await update_user_name(message.from_user.id, name)
     await state.set_state(UserFlow.waiting_phone)
     await message.answer(
-        "📱 Отправьте ваш номер телефона:",
+        "📞Telefon raqamingiz:",
         reply_markup=phone_keyboard()
     )
 
@@ -216,9 +216,9 @@ async def handle_phone_text(message: Message, state: FSMContext, bot: Bot):
     phone = extract_phone(message.text)
     if not phone:
         await message.answer(
-            "⚠️ Не могу распознать номер телефона.\n\n"
-            "Попробуйте в формате: +998901234567\n"
-            "Или нажмите кнопку 📱"
+            "⚠️ Telefon raqamini aniqlab bo‘lmadi.\n\n"
+            "Quyidagi formatda kiriting: +998901234567\n"
+            "Yoki 📱 tugmasini bosing."
         )
         return
     await _process_phone(message, state, bot, phone)
@@ -233,15 +233,19 @@ async def _process_phone(message: Message, state: FSMContext, bot: Bot, phone: s
     await update_user_status(user_id, "registered")
     await state.clear()
 
-    await message.answer("✅ Спасибо! Ваши данные приняты.", reply_markup=remove_keyboard())
-
     # Получаем имя
     from database import aiosqlite, DB_PATH
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT name FROM users WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
             name = row[0] if row else "—"
-
+            
+    await message.answer(
+    f"Katta rahmat {name}❗️\n"
+    f"✅Ma'lumotingiz qabul qilindi\n"
+    f"Tez orada operatorlarimiz sizga aloqaga chiqishadi",
+    reply_markup=remove_keyboard()
+)
     # Обновляем сообщение в канале
     await _update_channel_registered(bot, user_id, name, username)
 
@@ -285,5 +289,5 @@ async def handle_free_text(message: Message, state: FSMContext):
             await message.answer("✅ Вы уже зарегистрированы.")
             return
 
-        await message.answer("✏️ Введите ваше имя:")
+        await message.answer("✏️ Ismingizni yozing:")
         await state.set_state(UserFlow.waiting_name)
